@@ -3,7 +3,7 @@ name: Update BunnyCDN IPSet
 on:
   workflow_dispatch: # Trigger manually
   schedule:
-    - cron: "0 0 * * *" # Run daily
+    - cron: "0 0 * * *" # Run daily at midnight
 
 jobs:
   update-ipset:
@@ -12,34 +12,60 @@ jobs:
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v3
+      with:
+        ref: main
 
     - name: Install Dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y ipset jq
 
-    - name: Fetch BunnyCDN IPs
+    - name: Fetch BunnyCDN IPv4 IPs
       run: |
-        # Fetch IPv4 and IPv6 IP lists
-        curl -s https://bunnycdn.com/api/system/edgeserverlist -H "Accept: application/json" | jq -r .[] > bunny_ipv4.txt
-        curl -s https://bunnycdn.com/api/system/edgeserverlist/ipv6 -H "Accept: application/json" | jq -r .[] > bunny_ipv6.txt
+        echo "Fetching BunnyCDN IPv4 addresses..."
+        curl -s --fail https://bunnycdn.com/api/system/edgeserverlist \
+          -H "Accept: application/json" > bunny_ipv4_raw.json
+        jq -r '.[]' bunny_ipv4_raw.json > bunny_ipv4.txt
+        echo "IPv4 list fetched and saved."
 
-    - name: Validate and Remove Duplicates from IP Files
+    - name: Fetch BunnyCDN IPv6 IPs
       run: |
-        # Validate and clean IPv4
+        echo "Fetching BunnyCDN IPv6 addresses..."
+        curl -s --fail https://bunnycdn.com/api/system/edgeserverlist/ipv6 \
+          -H "Accept: application/json" > bunny_ipv6_raw.json
+        jq -r '.[]' bunny_ipv6_raw.json > bunny_ipv6.txt
+        echo "IPv6 list fetched and saved."
+
+    - name: Validate and Remove Duplicates
+      run: |
+        echo "Validating and cleaning IPv4 addresses..."
         grep -E '^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.([0-9]{1,3}\.){2}[0-9]{1,3}$' bunny_ipv4.txt | sort -u > clean_ipv4.txt
         mv clean_ipv4.txt bunny_ipv4.txt
 
-        # Validate and clean IPv6
+        echo "Validating and cleaning IPv6 addresses..."
         grep -E '^([a-fA-F0-9:]+:+)+[a-fA-F0-9]+$' bunny_ipv6.txt | sort -u > clean_ipv6.txt
         mv clean_ipv6.txt bunny_ipv6.txt
 
-    - name: Commit and Push IP Files
+    - name: Stage Changes
+      run: |
+        git add bunny_ipv4.txt bunny_ipv6.txt
+
+    - name: Check for Changes
+      id: git_diff
+      run: |
+        # Check if there are changes
+        if git diff --cached --quiet; then
+          echo "No changes to commit. Exiting."
+          echo "changed=false" >> $GITHUB_ENV
+        else
+          echo "Changes detected."
+          echo "changed=true" >> $GITHUB_ENV
+        fi
+
+    - name: Commit and Push Changes
+      if: env.changed == 'true'
       run: |
         git config user.name "vCoDMods"
         git config user.email "admin@vcodmods.com"
-
-        # Add and commit the IP files
-        git add bunny_ipv4.txt bunny_ipv6.txt
         git commit -m "Update BunnyCDN EdgeServer IPs"
         git push
