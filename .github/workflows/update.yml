@@ -5,13 +5,16 @@ on:
   schedule:
     - cron: "30 1 * * *"
 
+permissions:
+ contents: write
+
 jobs:
   update-ipset:
     runs-on: ubuntu-latest
 
     steps:
     - name: Checkout Repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v7
       with:
         ref: main
 
